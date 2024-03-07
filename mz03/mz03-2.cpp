@@ -112,6 +112,73 @@ operator/(const complex &a, const complex &b)
     return res /= b;
 }
 
+// copy-on-write shared memory pool for complex_stack
+class complex_mem_pool
+{
+private:
+    complex *buf;
+    size_t *refcount;
+    size_t cap;
+    size_t *maxpos;
+public:
+    explicit complex_mem_pool(size_t count) : cap{count}
+    {
+        refcount = new size_t{1};
+        maxpos = new size_t{0};
+        buf = static_cast<complex *>(::operator new(count * sizeof(complex), std::align_val_t{alignof(complex)}));
+    }
+    ~complex_mem_pool()
+    {
+        --(*refcount);
+        if (*refcount == 0) {
+            delete refcount;
+            delete maxpos;
+            ::operator delete(buf, std::align_val_t{alignof(complex)});
+        }
+    }
+    complex_mem_pool(const complex_mem_pool &oth)
+        : buf{oth.buf}, refcount{oth.refcount}, cap{oth.cap}, maxpos{oth.maxpos}
+    {
+        ++(*refcount);
+    }
+    complex_mem_pool(complex_mem_pool &&oth)
+        : buf{std::exchange(oth.buf, nullptr)}, refcount{std::exchange(oth.refcount, nullptr)},
+          cap{std::exchange(oth.cap, 0)}, maxpos{std::exchange(oth.maxpos, nullptr)}
+    {
+    }
+    complex_mem_pool&
+    operator=(complex_mem_pool oth) {
+        std::swap(buf, oth.buf);
+        std::swap(refcount, oth.refcount);
+        std::swap(cap, oth.cap);
+        std::swap(maxpos, oth.maxpos);
+        return *this;
+    }
+    complex_mem_pool realloc(size_t count) {
+        complex_mem_pool res{count};
+        for (size_t i = 0; i < std::min(*maxpos, count); ++i) {
+            new (res.buf + i) complex{buf[i]};
+        }
+        return res;
+    }
+    complex&
+    operator[](size_t idx) {
+        return buf[idx];
+    }
+    size_t
+    capacity() const {
+        return cap;
+    }
+    size_t
+    pos() const {
+        return *maxpos;
+    }
+    void
+    inc_pos() {
+        ++(*maxpos);
+    }
+};
+
 class complex_stack
 {
 private:
@@ -156,13 +223,6 @@ public:
         std::swap(buf, oth.buf);
         return *this;
     }
-    complex_stack &
-    operator=(complex_stack &&oth) noexcept
-    {
-        cnt = std::exchange(oth.cnt, 0);
-        buf = std::exchange(oth.buf, nullptr);
-        return *this;
-    }
     size_t
     size() const
     {
@@ -176,6 +236,45 @@ public:
     const complex &
     operator+() const
     {
+        return buf[cnt - 1];
+    }
+    complex_stack
+    operator~() const &
+    {
+        complex_stack res;
+        res.cnt = cnt - 1;
+        if (cnt == 1) {
+            res.buf = nullptr;
+            return res;
+        }
+        res.buf = stack_alloc(cnt - 1);
+        for (size_t i = 0; i < cnt - 1; ++i) {
+            new (res.buf + i) complex(buf[i]);
+        }
+        return res;
+    }
+    complex_stack
+    operator~() &&
+    {
+        --cnt;
+        return *this;
+    }
+    complex_stack
+    operator<<(const complex &oth) const &
+    {
+        complex_stack res;
+        res.cnt = cnt + 1;
+        res.buf = stack_alloc(cnt + 1);
+        for (size_t i = 0; i < cnt; ++i) {
+            new (res.buf + i) complex(buf[i]);
+        }
+        new (res.buf + cnt) complex(oth);
+        return res;
+    }
+    complex_stack
+    operator<<(const complex &oth) &&
+    {
+        ++cnt;
     }
 };
 } // namespace numbers
