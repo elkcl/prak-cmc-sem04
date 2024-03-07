@@ -1,5 +1,4 @@
 #include <iomanip>
-#include <iostream>
 #include <new>
 #include <string>
 #include <sstream>
@@ -8,130 +7,31 @@
 #include <utility>
 namespace numbers
 {
-class complex
-{
-private:
-    double x, y;
-    static constexpr int OUT_PRECISION{10};
-
-public:
-    complex(double _re = 0, double _im = 0) : x{_re}, y{_im} {}
-    explicit complex(const std::string &s)
-    {
-        std::istringstream iss{s};
-        char ign;
-        iss >> ign >> x >> ign >> y >> ign;
-    }
-    double
-    re() const
-    {
-        return x;
-    }
-    double
-    im() const
-    {
-        return y;
-    }
-    double
-    abs2() const
-    {
-        return x * x + y * y;
-    }
-    double
-    abs() const
-    {
-        return sqrt(abs2());
-    }
-    std::string
-    to_string() const
-    {
-        std::ostringstream oss;
-        oss << std::setprecision(OUT_PRECISION) << '(' << x << ',' << y << ')';
-        return oss.str();
-    }
-    complex
-    operator~() const
-    {
-        return {x, -y};
-    }
-    complex
-    operator-() const
-    {
-        return {-x, -y};
-    }
-    complex &
-    operator+=(const complex &b)
-    {
-        x += b.x;
-        y += b.y;
-        return *this;
-    }
-    complex &
-    operator-=(const complex &b)
-    {
-        x -= b.x;
-        y -= b.y;
-        return *this;
-    }
-    complex &
-    operator*=(const complex &b)
-    {
-        complex res{x * b.x - y * b.y, x * b.y + y * b.x};
-        return *this = res;
-    }
-    complex &
-    operator/=(const complex &b)
-    {
-        double b_abs2 = b.abs2();
-        complex b1{b.x / b_abs2, -b.y / b_abs2};
-        return *this *= b1;
-    }
-};
-
-complex
-operator+(const complex &a, const complex &b)
-{
-    complex res{a};
-    return res += b;
-}
-complex
-operator-(const complex &a, const complex &b)
-{
-    complex res{a};
-    return res -= b;
-}
-complex
-operator*(const complex &a, const complex &b)
-{
-    complex res{a};
-    return res *= b;
-}
-complex
-operator/(const complex &a, const complex &b)
-{
-    complex res{a};
-    return res /= b;
-}
-
 template <typename T> class immut_stack;
-
 // copy-on-write shared memory pool for the stack
 template <typename T> class mem_pool
 {
 private:
-    T *buf;
-    size_t *refcount;
-    size_t cap;
-    size_t *maxpos;
+    T *buf = nullptr;
+    size_t *refcount = nullptr;
+    size_t cap = 0;
+    size_t *maxpos = nullptr;
 
 public:
     explicit mem_pool(size_t count) : cap{count}
     {
-        refcount = new size_t{1};
-        maxpos = new size_t{0};
-        buf = static_cast<T *>(::operator new(count * sizeof(T), std::align_val_t{alignof(T)}));
+        try {
+            refcount = new size_t{1};
+            maxpos = new size_t{0};
+            buf = static_cast<T *>(::operator new(count * sizeof(T), std::align_val_t{alignof(T)}));
+        } catch (...) {
+            delete refcount;
+            delete maxpos;
+            ::operator delete(buf, std::align_val_t{alignof(T)});
+            throw;
+        }
     }
-    ~mem_pool()
+    ~mem_pool() noexcept(noexcept(~T()))
     {
         if (buf == nullptr) {
             return;
@@ -146,7 +46,7 @@ public:
             ::operator delete(buf, std::align_val_t{alignof(T)});
         }
     }
-    mem_pool(const mem_pool &oth) : buf{oth.buf}, refcount{oth.refcount}, cap{oth.cap}, maxpos{oth.maxpos}
+    mem_pool(const mem_pool &oth) noexcept : buf{oth.buf}, refcount{oth.refcount}, cap{oth.cap}, maxpos{oth.maxpos}
     {
         ++(*refcount);
     }
@@ -174,7 +74,13 @@ public:
         return res;
     }
     friend immut_stack<T>;
-    friend immut_stack<T> operator<<(immut_stack<T> stack, complex elem);
+// ejudge has -Werror flag configured, which makes the run fail with CE due to the warning
+// however, the warning in this case is not an error, I indeed need to deliberately make a non-template friend, which is
+// further defined in the immut_stack class
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnon-template-friend"
+    friend immut_stack<T> operator<<(immut_stack<T> stack, T elem);
+#pragma GCC diagnostic pop
 };
 
 template <typename T> class immut_stack
@@ -185,33 +91,34 @@ private:
 
 public:
     size_t
-    size() const
+    size() const noexcept
     {
         return cnt;
     }
     const T &
-    operator[](size_t ix) const
+    operator[](size_t ix) const noexcept
     {
         return mem.buf[ix];
     }
     const T &
-    operator+() const
+    operator+() const noexcept
     {
         return mem.buf[cnt - 1];
     }
     friend immut_stack
-    operator~(immut_stack stack)
+    operator~(immut_stack stack) noexcept
     {
         --stack.cnt;
         return stack;
     }
     friend immut_stack
-    operator<<(immut_stack stack, complex elem)
+    operator<<(immut_stack stack, T elem)
     {
+        // reallocate memory only if either the capacity is reached or the stack needs to be forked
         if (stack.cnt != *stack.mem.maxpos || stack.cnt >= stack.mem.cap) {
             stack.mem = stack.mem.realloc(stack.cnt * 2 + 2);
         }
-        new (stack.mem.buf + stack.cnt) complex{elem};
+        new (stack.mem.buf + stack.cnt) T{elem};
         ++stack.cnt;
         *stack.mem.maxpos = stack.cnt;
         return stack;
@@ -220,22 +127,3 @@ public:
 
 using complex_stack = immut_stack<complex>;
 } // namespace numbers
-
-int
-main()
-{
-    numbers::complex_stack st1;
-    st1 = st1 << 2;
-    numbers::complex_stack st21 = st1 << numbers::complex{"(1,2)"};
-    numbers::complex_stack st22 = st1 << 3 << 4;
-    numbers::complex_stack st221 = ~st22;
-    std::cout << (+st221).to_string() << std::endl;
-    for (size_t i = 0; i < st21.size(); ++i) {
-        std::cout << st21[i].to_string() << ' ';
-    }
-    std::cout << std::endl;
-    for (size_t i = 0; i < st22.size(); ++i) {
-        std::cout << st22[i].to_string() << ' ';
-    }
-    std::cout << std::endl;
-}
