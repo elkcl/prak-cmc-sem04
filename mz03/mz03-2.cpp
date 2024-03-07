@@ -1,4 +1,5 @@
 #include <iomanip>
+#include <iostream>
 #include <new>
 #include <string>
 #include <sstream>
@@ -112,169 +113,129 @@ operator/(const complex &a, const complex &b)
     return res /= b;
 }
 
-// copy-on-write shared memory pool for complex_stack
-class complex_mem_pool
+template <typename T> class immut_stack;
+
+// copy-on-write shared memory pool for the stack
+template <typename T> class mem_pool
 {
 private:
-    complex *buf;
+    T *buf;
     size_t *refcount;
     size_t cap;
     size_t *maxpos;
+
 public:
-    explicit complex_mem_pool(size_t count) : cap{count}
+    explicit mem_pool(size_t count) : cap{count}
     {
         refcount = new size_t{1};
         maxpos = new size_t{0};
-        buf = static_cast<complex *>(::operator new(count * sizeof(complex), std::align_val_t{alignof(complex)}));
+        buf = static_cast<T *>(::operator new(count * sizeof(T), std::align_val_t{alignof(T)}));
     }
-    ~complex_mem_pool()
+    ~mem_pool()
     {
+        if (buf == nullptr) {
+            return;
+        }
         --(*refcount);
         if (*refcount == 0) {
+            for (size_t i = 0; i < *maxpos; ++i) {
+                buf[i].~T();
+            }
             delete refcount;
             delete maxpos;
-            ::operator delete(buf, std::align_val_t{alignof(complex)});
+            ::operator delete(buf, std::align_val_t{alignof(T)});
         }
     }
-    complex_mem_pool(const complex_mem_pool &oth)
-        : buf{oth.buf}, refcount{oth.refcount}, cap{oth.cap}, maxpos{oth.maxpos}
+    mem_pool(const mem_pool &oth) : buf{oth.buf}, refcount{oth.refcount}, cap{oth.cap}, maxpos{oth.maxpos}
     {
         ++(*refcount);
     }
-    complex_mem_pool(complex_mem_pool &&oth)
+    mem_pool(mem_pool &&oth) noexcept
         : buf{std::exchange(oth.buf, nullptr)}, refcount{std::exchange(oth.refcount, nullptr)},
           cap{std::exchange(oth.cap, 0)}, maxpos{std::exchange(oth.maxpos, nullptr)}
     {
     }
-    complex_mem_pool&
-    operator=(complex_mem_pool oth) {
+    mem_pool &
+    operator=(mem_pool oth) noexcept
+    {
         std::swap(buf, oth.buf);
         std::swap(refcount, oth.refcount);
         std::swap(cap, oth.cap);
         std::swap(maxpos, oth.maxpos);
         return *this;
     }
-    complex_mem_pool realloc(size_t count) {
-        complex_mem_pool res{count};
+    mem_pool
+    realloc(size_t count)
+    {
+        mem_pool res{count};
         for (size_t i = 0; i < std::min(*maxpos, count); ++i) {
-            new (res.buf + i) complex{buf[i]};
+            new (res.buf + i) T{buf[i]};
         }
         return res;
     }
-    complex&
-    operator[](size_t idx) {
-        return buf[idx];
-    }
-    size_t
-    capacity() const {
-        return cap;
-    }
-    size_t
-    pos() const {
-        return *maxpos;
-    }
-    void
-    inc_pos() {
-        ++(*maxpos);
-    }
+    friend immut_stack<T>;
+    friend immut_stack<T> operator<<(immut_stack<T> stack, complex elem);
 };
 
-class complex_stack
+template <typename T> class immut_stack
 {
 private:
-    complex *buf;
-    size_t cnt;
-    static complex *
-    stack_alloc(size_t count)
-    {
-        return static_cast<complex *>(::operator new(count * sizeof(complex), std::align_val_t{alignof(complex)}));
-    }
-    static void
-    stack_free(complex *mem)
-    {
-        ::operator delete(mem, std::align_val_t{alignof(complex)});
-    }
+    mem_pool<T> mem{1};
+    size_t cnt{0};
 
 public:
-    complex_stack() : buf{nullptr}, cnt{0} {}
-    ~complex_stack() noexcept
-    {
-        if (buf == nullptr) {
-            return;
-        }
-        for (size_t i = 0; i < cnt; ++i) {
-            buf[i].~complex();
-        }
-        stack_free(buf);
-    }
-    complex_stack(const complex_stack &oth) : cnt{oth.cnt}, buf{stack_alloc(oth.cnt)}
-    {
-        for (size_t i = 0; i < cnt; ++i) {
-            new (buf + i) complex(oth.buf[i]);
-        }
-    }
-    complex_stack(complex_stack &&oth) noexcept : cnt{std::exchange(oth.cnt, 0)}, buf{std::exchange(oth.buf, nullptr)}
-    {
-    }
-    complex_stack &
-    operator=(complex_stack oth)
-    {
-        std::swap(cnt, oth.cnt);
-        std::swap(buf, oth.buf);
-        return *this;
-    }
     size_t
     size() const
     {
         return cnt;
     }
-    const complex &
+    const T &
     operator[](size_t ix) const
     {
-        return buf[ix];
+        return mem.buf[ix];
     }
-    const complex &
+    const T &
     operator+() const
     {
-        return buf[cnt - 1];
+        return mem.buf[cnt - 1];
     }
-    complex_stack
-    operator~() const &
+    friend immut_stack
+    operator~(immut_stack stack)
     {
-        complex_stack res;
-        res.cnt = cnt - 1;
-        if (cnt == 1) {
-            res.buf = nullptr;
-            return res;
+        --stack.cnt;
+        return stack;
+    }
+    friend immut_stack
+    operator<<(immut_stack stack, complex elem)
+    {
+        if (stack.cnt != *stack.mem.maxpos || stack.cnt >= stack.mem.cap) {
+            stack.mem = stack.mem.realloc(stack.cnt * 2 + 2);
         }
-        res.buf = stack_alloc(cnt - 1);
-        for (size_t i = 0; i < cnt - 1; ++i) {
-            new (res.buf + i) complex(buf[i]);
-        }
-        return res;
-    }
-    complex_stack
-    operator~() &&
-    {
-        --cnt;
-        return *this;
-    }
-    complex_stack
-    operator<<(const complex &oth) const &
-    {
-        complex_stack res;
-        res.cnt = cnt + 1;
-        res.buf = stack_alloc(cnt + 1);
-        for (size_t i = 0; i < cnt; ++i) {
-            new (res.buf + i) complex(buf[i]);
-        }
-        new (res.buf + cnt) complex(oth);
-        return res;
-    }
-    complex_stack
-    operator<<(const complex &oth) &&
-    {
-        ++cnt;
+        new (stack.mem.buf + stack.cnt) complex{elem};
+        ++stack.cnt;
+        *stack.mem.maxpos = stack.cnt;
+        return stack;
     }
 };
+
+using complex_stack = immut_stack<complex>;
 } // namespace numbers
+
+int
+main()
+{
+    numbers::complex_stack st1;
+    st1 = st1 << 2;
+    numbers::complex_stack st21 = st1 << numbers::complex{"(1,2)"};
+    numbers::complex_stack st22 = st1 << 3 << 4;
+    numbers::complex_stack st221 = ~st22;
+    std::cout << (+st221).to_string() << std::endl;
+    for (size_t i = 0; i < st21.size(); ++i) {
+        std::cout << st21[i].to_string() << ' ';
+    }
+    std::cout << std::endl;
+    for (size_t i = 0; i < st22.size(); ++i) {
+        std::cout << st22[i].to_string() << ' ';
+    }
+    std::cout << std::endl;
+}
