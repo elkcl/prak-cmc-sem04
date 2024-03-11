@@ -4,6 +4,8 @@ using std::cin;
 using std::cout;
 
 int main() {
+    constexpr int THRESHOLD = 4;
+
     std::ios_base::sync_with_stdio(false);
     cin.tie(nullptr);
     cout << std::hex;
@@ -18,7 +20,7 @@ int main() {
         if (curr == last) {
             ++cnt;
         } else {
-            if (last == '#' || cnt > 4) {
+            if (last == '#' || cnt > THRESHOLD) {
                 cout << '#' << last << cnt << '#';
             } else {
                 for (int i = 0; i < cnt; ++i) {
@@ -30,7 +32,7 @@ int main() {
         }
         curr = cin.get();
     }
-    if (last == '#' || cnt > 4) {
+    if (last == '#' || cnt > THRESHOLD) {
         cout << '#' << last << cnt << '#';
     } else {
         for (int i = 0; i < cnt; ++i) {
