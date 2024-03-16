@@ -6,11 +6,12 @@ namespace numbers
 {
 class complex
 {
-  private:
+private:
     double x, y;
     static constexpr int OUT_PRECISION{10};
 
-  public:
+public:
+    // cppcheck-suppress noExplicitConstructor
     complex(double _re = 0, double _im = 0) : x{_re}, y{_im} {}
     explicit complex(const std::string &s)
     {
