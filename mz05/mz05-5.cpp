@@ -2,14 +2,18 @@
 #include <ios>
 #include <iostream>
 #include <map>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 using std::cin;
 using std::cout;
 using std::map;
 using std::pair;
+using std::tuple;
 using std::unordered_map;
+using std::vector;
 
 int
 main()
@@ -18,8 +22,8 @@ main()
     cin.tie(nullptr);
 
     constexpr uint32_t M = 4294967161;
-    unordered_map<uint32_t, unordered_map<uint32_t, uint64_t>> mat1;
-    unordered_map<uint32_t, unordered_map<uint32_t, uint64_t>> mat2;
+    vector<tuple<uint32_t, uint32_t, uint64_t>> mat1;
+    unordered_map<uint32_t, vector<pair<uint32_t, uint64_t>>> mat2; // row-major
     map<pair<uint32_t, uint32_t>, uint64_t> ans;
     uint32_t r, c;
     uint64_t v;
@@ -35,34 +39,20 @@ main()
             continue;
         }
         if (fst_map) {
-            mat1[r][c] = v;
+            mat1.emplace_back(r, c, v);
         } else {
-            mat2[c][r] = v;
+            mat2[r].emplace_back(c, v);
         }
     }
-    for (const auto &[r1, m1] : mat1) {
-        for (const auto &[c2, m2] : mat2) {
-            uint64_t res = 0;
-            if (m1.size() <= m2.size()) {
-                for (const auto &[c1, v1] : m1) {
-                    if (auto it = m2.find(c1); it != m2.end()) {
-                        res += (v1 * it->second) % M;
-                    }
-                }
-            } else {
-                for (const auto &[r2, v2] : m2) {
-                    if (auto it = m1.find(r2); it != m1.end()) {
-                        res += (v2 * it->second) % M;
-                    }
-                }
-            }
-            res %= M;
-            if (res != 0) {
-                ans[{r1, c2}] = res;
-            }
+    for (const auto &[r1, c1, v1] : mat1) {
+        for (const auto &[c2, v2] : mat2[c1]) {
+            ans[{r1, c2}] += v1 * v2;
+            ans[{r1, c2}] %= M;
         }
     }
     for (const auto &[k3, v3] : ans) {
-        cout << k3.first << ' ' << k3.second << ' ' << v3 << '\n';
+        if (v3 != 0) {
+            cout << k3.first << ' ' << k3.second << ' ' << v3 << '\n';
+        }
     }
 }
