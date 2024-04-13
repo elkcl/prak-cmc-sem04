@@ -15,7 +15,7 @@ public:
         b = _b;
     }
     static Rectangle *
-    make(std::string st)
+    make(const std::string &st)
     {
         std::istringstream ss(st);
         double a, b;
@@ -36,7 +36,7 @@ private:
 public:
     Square(double _a) { a = _a; }
     static Square *
-    make(std::string st)
+    make(const std::string &st)
     {
         std::istringstream ss(st);
         double a;
@@ -57,7 +57,7 @@ private:
 public:
     Circle(double _r) { r = _r; }
     static Circle *
-    make(std::string st)
+    make(const std::string &st)
     {
         std::istringstream ss(st);
         double r;
