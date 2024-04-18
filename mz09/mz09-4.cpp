@@ -1,31 +1,63 @@
-// S -> aSd | bP
+// S -> aXd
+// X -> aXd | bP
 // P -> bPc | c
 
-#include <cstdint>
 #include <iostream>
-#include <string>
-#include <cstring>
 
-using std::cin;
-using std::cout;
-using std::endl;
-using std::string;
-using std::strspn;
+void S(int n, int m);
+void X(int n, int m);
+void P(int n, int m);
 
-constexpr uint64_t MIN_LEN = 4;
-constexpr uint64_t B_SHIFT = 32;
-constexpr uint64_t A_MASK = (1ull << B_SHIFT) - 1;
-
-void genP(uint64_t k, uint64_t i);
-
-void genS(uint64_t k, uint64_t i) {
+void
+S(int n, int m)
+{
+    std::cout << 'a';
+    X(n - 1, m);
+    std::cout << 'd';
 }
 
-void genP(uint64_t k, uint64_t i) {
+void
+X(int n, int m)
+{
+    if (n > 0) {
+        std::cout << 'a';
+        X(n - 1, m);
+        std::cout << 'd';
+    } else {
+        std::cout << 'b';
+        P(n, m - 1);
+    }
+}
+
+void
+P(int n, int m)
+{
+    if (m > 0) {
+        std::cout << 'b';
+        P(n, m - 1);
+        std::cout << 'c';
+    } else {
+        std::cout << 'c';
+    }
+}
+
+void
+print(int n, int m)
+{
+    if (n == 0) {
+        return;
+    }
+    S(n, m);
+    std::cout << std::endl;
+    print(n - 1, m + 1);
 }
 
 int
 main()
 {
+    int k;
+    std::cin >> k;
+    if (k % 2 == 0) {
+        print(k / 2 - 1, 1);
+    }
 }
-
