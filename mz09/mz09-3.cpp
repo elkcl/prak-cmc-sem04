@@ -6,6 +6,7 @@
 // Q -> Z1 | ZQ1
 // bZ -> Zb
 // aZ -> a0
+// 0Z -> 00
 
 #include <iostream>
 #include <string>
